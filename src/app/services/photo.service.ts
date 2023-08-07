@@ -5,6 +5,7 @@ import {
 	CameraSource,
 	Photo,
 } from '@capacitor/camera'
+import { Capacitor } from '@capacitor/core'
 import { Filesystem, Directory } from '@capacitor/filesystem'
 import { Preferences } from '@capacitor/preferences'
 import { Platform } from '@ionic/angular' //используется для получения информации о текущем устройстве
@@ -26,15 +27,22 @@ export class PhotoService {
 		const base64Data = await this.readAsBase64(photo)
 
 		const fileName = Date.now() + '.jpeg'
-		const saveFile = await Filesystem.writeFile({
+		const savedFile = await Filesystem.writeFile({
 			path: fileName,
 			data: base64Data,
 			directory: Directory.Data,
 		})
 
-		return {
-			filePath: fileName,
-			webviewPath: photo.webPath,
+		if (this.platform.is('hybrid')) {
+			return {
+				filePath: savedFile.uri,
+				webviewPath: Capacitor.convertFileSrc(savedFile.uri),
+			}
+		} else {
+			return {
+				filePath: fileName,
+				webviewPath: photo.webPath,
+			}
 		}
 	}
 
@@ -87,12 +95,33 @@ export class PhotoService {
 	public async loadSaved() {
 		const { value } = await Preferences.get({ key: this.PHOTO_STORAGE })
 		this.photos = (value ? JSON.parse(value) : []) as UserPhoto[]
-		for (let photo of this.photos) {
-			const readFile = await Filesystem.readFile({
-				path: photo.filePath,
-				directory: Directory.Data,
-			})
-			photo.webviewPath = `data:image/jpeg;base64,${readFile.data}`
+
+		if (!this.platform.is('hybrid')) {
+			for (let photo of this.photos) {
+				const readFile = await Filesystem.readFile({
+					path: photo.filePath,
+					directory: Directory.Data,
+				})
+
+				photo.webviewPath = `data:image/jpeg;base64,${readFile.data}`
+			}
 		}
+	}
+
+	public async deletePicture(photo: UserPhoto, position: number) {
+		this.photos.splice(position, 1)
+
+		Preferences.set({
+			key: this.PHOTO_STORAGE,
+			value: JSON.stringify(this.photos),
+		})
+
+		// delete photo file from filesystem
+		const filename = photo.filePath.substr(photo.filePath.lastIndexOf('/') + 1)
+
+		await Filesystem.deleteFile({
+			path: filename,
+			directory: Directory.Data,
+		})
 	}
 }
